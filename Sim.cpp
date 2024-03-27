@@ -62,14 +62,16 @@ void Sim::simulate() {
         auto waitNanos = std::chrono::duration<long long, std::nano>(std::chrono::nanoseconds(nanos/rateNow));
         //get time now and check how long to Nanos
         auto now = std::chrono::high_resolution_clock::now();
-        n = (n+1)%sample;
-        if (n==0) { //the measurement is complete!
-            //how many nanoseconds needed from first measurement
-            auto delta = std::chrono::duration_cast<std::chrono::nanoseconds>(now-meassureStart).count();
-            auto deltaSec = delta/secs;
+        if (false) { //this logs simulation rates
+            n = (n+1)%sample;
+            if (n==0) { //the measurement is complete!
+                //how many nanoseconds needed from first measurement
+                auto delta = std::chrono::duration_cast<std::chrono::nanoseconds>(now-meassureStart).count();
+                auto deltaSec = delta/secs;
 
-            std::cout << (*this->rate)*(nanos/(float)deltaSec) << "Hz ("<< 100*(nanos/(float)deltaSec) <<"%)\n";
-            meassureStart = now; //reset for next now
+                std::cout << (*this->rate)*(nanos/(float)deltaSec) << "Hz ("<< 100*(nanos/(float)deltaSec) <<"%)\n";
+                meassureStart = now; //reset for next now
+            }
         }
 
         auto nextStep = lastTime+waitNanos; //when is the next execution?

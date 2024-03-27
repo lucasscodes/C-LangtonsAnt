@@ -4,18 +4,18 @@
 #include <cassert>
 #include <iostream>
 #include <vector>
-#include "gperftools-master/src/gperftools/profiler.h"
+//#include "gperftools-master/src/gperftools/profiler.h"
 
 //start simulation and drawings in parallel/threaded mode
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     const char winTtl[] = "Langtons Ant";
     //field dimensions
-    const int height = 512;
-    const int width = 512;
+    const int height = 1050;
+    const int width = 1680;
     //background color
-    COLORREF background = RGB(255,255,255);
-    int rate = 1000; //Hz of ants
-    //get fps from monitor or fallback to hardcoded
+    COLORREF background = RGB(0,0,0);
+    int rate = 10000; //Hz of ants
+    //get fps from monitor
     DEVMODE dm;
     ZeroMemory(&dm, sizeof(dm));
     dm.dmSize = sizeof(dm);
@@ -54,7 +54,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ant4.y = height/2;
     ant4.x = width/2;
     ant4.dir = 3;
-    ant4.col = RGB(0,0,0);
+    ant4.col = RGB(255,255,255);
 
     Ant ants[] = {ant,ant2,ant3,ant4};
     int antsL = 0;
@@ -70,10 +70,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // Init the simulation
     Sim langtonsAnt(field, width, height, ants, antsL, background, &rate);
+    
     //TODO: Use this profiler to optimize
     //ProfilerStart("./executionProfiler.txt");
     // Init the GUI
-    Window window(hInstance, winTtl, 0, 0, field, width, height, background, fps, cols);
+    Window window(hInstance, winTtl, width, height, field, width, height, background, fps, cols);
     // init thread to refresh screen
     window.startDrawThread();
     //ProfilerStop();

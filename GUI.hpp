@@ -20,7 +20,7 @@
         const int fieldH;
         static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
         //draw a single box
-        void updateBoxIfNeeded(int y, int x, HDC hdc, float blockW, float blockH);
+        void updateBoxIfNeeded(int y, int x, HDC hdc, int top, int left, int bottom, int right);
         //(re)draw field
         void drawField();
         //threaded timed execution of draws

@@ -75,12 +75,6 @@ Window::Window(HINSTANCE hInstance, const char* title, int width, int height, CO
         return;
     }
 
-    hwnd = CreateWindowEx(0, CLASS_NAME, title, WS_POPUP, CW_USEDEFAULT, CW_USEDEFAULT, width, height, NULL, NULL, hInstance, this);
-
-    if (hwnd == NULL) {
-        MessageBox(NULL, "Window Creation Failed!", "Error!", MB_ICONEXCLAMATION | MB_OK);
-        return;
-    }
 
     //TODO: init this in main and make the gui-init faster!
     this->field = fieldX;
@@ -93,9 +87,8 @@ Window::Window(HINSTANCE hInstance, const char* title, int width, int height, CO
     //TODO: Why is all breaking apart without this initially?
     this->redraw = true; //ignore last field and just redraw all?
 
-    this->hwnd = hwnd; //store simulation canvas
 
-    //This initializes brushes+pens for all colors, but somehow deletions on the objects didnt worked?
+    //This initializes brushes+pens for all colors
     std::unordered_map<COLORREF, std::tuple<HPEN, HBRUSH>> map;
     this->brushAndPen = map;
     for (COLORREF col : cols) {
@@ -105,6 +98,15 @@ Window::Window(HINSTANCE hInstance, const char* title, int width, int height, CO
         std::tuple<HPEN, HBRUSH> e = {hPen, hBrush};
         this->brushAndPen.insert({col, e});
     }
+
+    hwnd = CreateWindowEx(0, CLASS_NAME, title, WS_POPUP, CW_USEDEFAULT, CW_USEDEFAULT, width, height, NULL, NULL, hInstance, this);
+
+    if (hwnd == NULL) {
+        MessageBox(NULL, "Window Creation Failed!", "Error!", MB_ICONEXCLAMATION | MB_OK);
+        return;
+    }
+
+    this->hwnd = hwnd; //store simulation canvas
 }
 
 //usable for resizable windows of this exe, but slow and bad like the init draw
@@ -113,33 +115,34 @@ void Window::setRedraw() {
 }
 
 //draw the box if needed
-void Window::updateBoxIfNeeded(int y, int x, HDC hdc, float blockW, float blockH) {
+void Window::updateBoxIfNeeded(int y, int x, HDC hdc, int top, int left, int bottom, int right) {
     if (this->redraw || this->last[y][x]!=this->field[y][x]) { //only redraw new things
         COLORREF col = this->field[y][x]; //get stored color
         //store in buffer to only draw once
         this->last[y][x] = col;
 
         //tried to not creade/destroy brush+pen, but was still slow (or no deletions were still inside but the pen+brush NOT MISSING!)
-        /*
-        assert(this->brushAndPen.find(col)!=this->brushAndPen.end());
+        
         auto entry = *(this->brushAndPen.find(col));
         std::tuple<HPEN, HBRUSH> pair = entry.second;
-        HPEN hPen2 = std::get<0>(pair);
-        HBRUSH hBrush2 = std::get<1>(pair); 
-        */
-
-        HPEN hPen = CreatePen(PS_SOLID, 0, col);
-        HBRUSH hBrush = CreateSolidBrush(col); //fill
+        HPEN hPen = std::get<0>(pair);
+        HBRUSH hBrush = std::get<1>(pair); 
         
         // Select the pen into the device context
-        SelectObject(hdc, hPen);
+        //SelectObject(hdc, hPen);
         // Select the brush into the device context
         SelectObject(hdc, hBrush);
-        // Draws a square with top-left corner at (50,50) and bottom-right corner at (100,100)
-        Rectangle(hdc, round(x*blockW), round(y*blockH), round(x*blockW+blockW), round(y*blockH+blockH)); 
 
-        DeleteObject(hPen);
-        DeleteObject(hBrush);
+        // Draws a square with top-left corner at (50,50) and bottom-right corner at (100,100)
+            // Define the rectangle
+        RECT rect;
+        rect.left = left;
+        rect.top = top;
+        rect.right = right;
+        rect.bottom = bottom;
+            // Fill the rectangle
+        FillRect(hdc, &rect, hBrush);
+
     }
 };
 
@@ -153,17 +156,19 @@ void Window::drawField() {
     int width = rect.right - rect.left;
     int height = rect.bottom - rect.top;
     // Now you can use width and height
-    float blockW = width/(float)fieldW;
-    float blockH = height/(float)fieldH;
+    double blockW = width/(float)fieldW;
+    double blockH = height/(float)fieldH;
     // draw the field
     //TODO: get it in parallel with, but something else is slower...
     //#pragma omp parallel for
     for (int y=0; y<fieldH; y++) {
         for (int x=0; x<fieldW; x++) {
-            updateBoxIfNeeded(y,x,hdc,blockW,blockH);
+            updateBoxIfNeeded(y,x,hdc,round(y * blockH), round(x * blockW), round((y + 1) * blockH), round((x + 1) * blockW));
         }
     }
+
     this->redraw = false;
+
     // Clean up
     EndPaint(hwnd, &ps);
 }
@@ -173,29 +178,17 @@ void Window::drawField() {
 void Window::drawLoop() {
     int nanos = std::chrono::nanoseconds(std::chrono::seconds(1)).count(); 
     int secs = 5;
-    int sample = secs*fps; //n * sec for each meassurement
     int n = 0; //count in range [0,sample)
     auto meassureStart = std::chrono::high_resolution_clock::now(); //store start of each meassurement
     auto lastTime = std::chrono::high_resolution_clock::now(); //store start of each while iteration
     auto waitNanos = std::chrono::duration<long long, std::nano>(std::chrono::nanoseconds(nanos/fps));
 
     while (true) { // or some condition for your simulation
-        // Invalidate the window rect to trigger a WM_PAINT message
-        InvalidateRect(this->hwnd , NULL, TRUE);
+        InvalidateRect(hwnd, NULL, false); //only ask for maximal fps given by system
 
         // Sleep for the desired interval
         //get time now and check how long to Nanos
         auto now = std::chrono::high_resolution_clock::now();
-        n = (n+1)%sample;
-        if (n==0) { //the measurement is complete!
-            //how many nanoseconds needed from first measurement
-            auto delta = std::chrono::duration_cast<std::chrono::nanoseconds>(now-meassureStart).count();
-            auto deltaSec = delta/secs;
-
-            std::cout << "Rendered: " << fps*(nanos/(float)deltaSec) << "Fps ("<< 100*(nanos/(float)deltaSec) <<"%) Simulated: ";
-            meassureStart = now; //reset for next now
-        }
-
         auto nextStep = lastTime+waitNanos; //when is the next execution?
         if (nextStep>now) std::this_thread::sleep_for(nextStep-now); //Nanos for it
 
@@ -210,5 +203,4 @@ void Window::startDrawThread() {
     std::thread drawThread(&Window::drawLoop, this);
     //async execution
     drawThread.detach(); 
-
 }
