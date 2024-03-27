@@ -1,6 +1,10 @@
 #include "GUI.hpp"
 #include "Sim.hpp"
 #include <windows.h>
+#include <cassert>
+#include <iostream>
+#include <vector>
+#include "gperftools-master/src/gperftools/profiler.h"
 
 //start simulation and drawings in parallel/threaded mode
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
@@ -10,8 +14,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     const int width = 512;
     //background color
     COLORREF background = RGB(255,255,255);
-    int fps = 65; //Hz
-    int rate = 50000; //Hz
+    int rate = 1000; //Hz of ants
+    //get fps from monitor or fallback to hardcoded
+    DEVMODE dm;
+    ZeroMemory(&dm, sizeof(dm));
+    dm.dmSize = sizeof(dm);
+    EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &dm);
+    int fps = dm.dmDisplayFrequency;
 
     // Create a dynamic 2D array
     COLORREF** field = new COLORREF*[height];
@@ -48,15 +57,26 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ant4.col = RGB(0,0,0);
 
     Ant ants[] = {ant,ant2,ant3,ant4};
-    int antsL = sizeof(ants)/sizeof(ants[0]);
-
+    int antsL = 0;
+    for (Ant ant : ants) {
+        antsL++;
+        assert(ant.col!=background);
+    }
+    std::vector<COLORREF> cols(antsL+1);
+    for (int i=0; i<antsL; i++) {
+        cols[i] = ants[i].col;
+    }
+    cols[antsL] = background;
 
     // Init the simulation
     Sim langtonsAnt(field, width, height, ants, antsL, background, &rate);
+    //TODO: Use this profiler to optimize
+    //ProfilerStart("./executionProfiler.txt");
     // Init the GUI
-    Window window(hInstance, winTtl, 0, 0, field, width, height, background, fps);
+    Window window(hInstance, winTtl, 0, 0, field, width, height, background, fps, cols);
     // init thread to refresh screen
     window.startDrawThread();
+    //ProfilerStop();
     // init thread to simulate ants
     langtonsAnt.startSimulationThread();
 
@@ -71,6 +91,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     //free memory
     for(int i = 0; i < height; ++i) delete [] field[i];
     delete [] field;
+
     //TODO: Init "lastField" in main and also clean up used memory
 
     return 0;

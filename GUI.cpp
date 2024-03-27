@@ -4,6 +4,10 @@
 #include <chrono>
 #include <thread>
 #include <cmath>
+#include <omp.h>
+#include <unordered_map>
+#include <vector>
+#include <cassert>
 
 
 LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -18,12 +22,14 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
     }
 
     switch(msg) {
+        //Disable cursor
         case WM_MOUSEMOVE:
             ShowCursor(FALSE);  // Hide the cursor
             break;
         case WM_MOUSELEAVE:
             ShowCursor(TRUE);  // Show the cursor when it leaves the window
             break;
+        //Exit screensaver with ESC
         case WM_KEYDOWN:
             if (wParam == VK_ESCAPE)  // VK_ESCAPE is the virtual key code for the Escape key
             {
@@ -37,19 +43,7 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             PostQuitMessage(0);
             break;
         case WM_PAINT:
-            if (!window->isDragging) {
-                window->drawField();
-            }
-            break;
-        case WM_ENTERSIZEMOVE: //start dragging
-            window->isDragging = true;
-            break;
-        case WM_EXITSIZEMOVE: //stop dragging
-            window->isDragging = false;
-            window->setRedraw();
-            break;
-        case WM_SIZE: //must be minimize/fullsize etc
-            window->setRedraw();
+            window->drawField();
             break;
         default:
             return DefWindowProc(hwnd, msg, wParam, lParam);
@@ -58,11 +52,12 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
     return 0;
 }
 
-Window::Window(HINSTANCE hInstance, const char* title, int width, int height, COLORREF** field, const int wField, const int hField, COLORREF backgroundX, int fpsX)
+Window::Window(HINSTANCE hInstance, const char* title, int width, int height, COLORREF** fieldX, 
+               const int wField, const int hField, COLORREF backgroundX, int fpsX, std::vector<COLORREF> cols)
     : fieldW(wField), fieldH(hField), background(backgroundX), fps(fpsX)
 {
     /*
-    //TODO: Use lpcwstring! 
+    //TODO: Use lpcwstring!?
     const char test[] = "abc";
     std::string str(test);
     std::wstring wstr(str.begin(), str.end());
@@ -88,24 +83,65 @@ Window::Window(HINSTANCE hInstance, const char* title, int width, int height, CO
     }
 
     //TODO: init this in main and make the gui-init faster!
-    this->field = field;
+    this->field = fieldX;
     this->last = new COLORREF*[hField];
     for (int h=0; h<hField; h++) {
         this->last[h] = new COLORREF[wField];
         for (int w=0; w<wField; w++) this->last[h][w] = field[h][w];
     }   
-    this->redraw = false; //ignore last field and just redraw all?
-    this->isDragging = false; //stop drawing while dragging (performance)
+    
+    //TODO: Why is all breaking apart without this initially?
+    this->redraw = true; //ignore last field and just redraw all?
 
     this->hwnd = hwnd; //store simulation canvas
 
-    ShowWindow(hwnd, SW_MAXIMIZE);
-    UpdateWindow(hwnd);
+    //This initializes brushes+pens for all colors, but somehow deletions on the objects didnt worked?
+    std::unordered_map<COLORREF, std::tuple<HPEN, HBRUSH>> map;
+    this->brushAndPen = map;
+    for (COLORREF col : cols) {
+        assert(this->brushAndPen.find(col) == this->brushAndPen.end()); //we only want to add colors once
+        HPEN hPen = CreatePen(PS_SOLID, 0, col); //border
+        HBRUSH hBrush = CreateSolidBrush(col); //fill
+        std::tuple<HPEN, HBRUSH> e = {hPen, hBrush};
+        this->brushAndPen.insert({col, e});
+    }
 }
 
+//usable for resizable windows of this exe, but slow and bad like the init draw
 void Window::setRedraw() {
     this->redraw = true;
 }
+
+//draw the box if needed
+void Window::updateBoxIfNeeded(int y, int x, HDC hdc, float blockW, float blockH) {
+    if (this->redraw || this->last[y][x]!=this->field[y][x]) { //only redraw new things
+        COLORREF col = this->field[y][x]; //get stored color
+        //store in buffer to only draw once
+        this->last[y][x] = col;
+
+        //tried to not creade/destroy brush+pen, but was still slow (or no deletions were still inside but the pen+brush NOT MISSING!)
+        /*
+        assert(this->brushAndPen.find(col)!=this->brushAndPen.end());
+        auto entry = *(this->brushAndPen.find(col));
+        std::tuple<HPEN, HBRUSH> pair = entry.second;
+        HPEN hPen2 = std::get<0>(pair);
+        HBRUSH hBrush2 = std::get<1>(pair); 
+        */
+
+        HPEN hPen = CreatePen(PS_SOLID, 0, col);
+        HBRUSH hBrush = CreateSolidBrush(col); //fill
+        
+        // Select the pen into the device context
+        SelectObject(hdc, hPen);
+        // Select the brush into the device context
+        SelectObject(hdc, hBrush);
+        // Draws a square with top-left corner at (50,50) and bottom-right corner at (100,100)
+        Rectangle(hdc, round(x*blockW), round(y*blockH), round(x*blockW+blockW), round(y*blockH+blockH)); 
+
+        DeleteObject(hPen);
+        DeleteObject(hBrush);
+    }
+};
 
 void Window::drawField() {
     HWND hwnd = this->hwnd;
@@ -119,31 +155,21 @@ void Window::drawField() {
     // Now you can use width and height
     float blockW = width/(float)fieldW;
     float blockH = height/(float)fieldH;
-
     // draw the field
+    //TODO: get it in parallel with, but something else is slower...
+    //#pragma omp parallel for
     for (int y=0; y<fieldH; y++) {
         for (int x=0; x<fieldW; x++) {
-            COLORREF col = this->field[y][x]; //get stored color
-            if (this->redraw || last[y][x]!=col) { //only redraw new things
-                last[y][x] = col;
-                // Select the pen into the device context
-                HPEN hPen = CreatePen(PS_SOLID, 0, col); //border
-                HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
-                // Select the brush into the device context
-                HBRUSH hBrush = CreateSolidBrush(col); //fill
-                SelectObject(hdc, hBrush);
-                Rectangle(hdc, round(x*blockW), round(y*blockH), round(x*blockW+blockW), round(y*blockH+blockH)); // Draws a square with top-left corner at (50,50) and bottom-right corner at (100,100)
-                //Clear up used objects
-                DeleteObject(hPen);
-                DeleteObject(hBrush);
-            }
+            updateBoxIfNeeded(y,x,hdc,blockW,blockH);
         }
     }
-    if (this->redraw) this->redraw = false;
+    this->redraw = false;
     // Clean up
     EndPaint(hwnd, &ps);
 }
 
+//TODO: This is the same as the simulation loop, extract lambda/functions inside and rate
+//Then move to own class and use zentral implementation
 void Window::drawLoop() {
     int nanos = std::chrono::nanoseconds(std::chrono::seconds(1)).count(); 
     int secs = 5;
@@ -178,6 +204,8 @@ void Window::drawLoop() {
 }
 
 void Window::startDrawThread() {
+    ShowWindow(hwnd, SW_MAXIMIZE);
+    UpdateWindow(hwnd);
     // init thread to refresh screen
     std::thread drawThread(&Window::drawLoop, this);
     //async execution

@@ -45,6 +45,8 @@ void Sim::step() {
     }
 }
 
+//TODO: This is the same as the draw loop, extract lambda/functions inside and rate
+//Then move to own class and use zentral implementation
 void Sim::simulate() {
     int nanos = std::chrono::nanoseconds(std::chrono::seconds(1)).count(); 
     int secs = 5;
