@@ -48,31 +48,32 @@ void Sim::step() {
 void Sim::simulate() {
     int nanos = std::chrono::nanoseconds(std::chrono::seconds(1)).count(); 
     int secs = 5;
-    int sample = secs*(*this->rate); //wait 1sec for each meassurement
+    int sample = secs*(*this->rate); //n * sec for each meassurement
     int n = 0; //count in range [0,sample)
-    auto meassure = std::chrono::high_resolution_clock::now(); //store start of each meassurement
+    auto meassureStart = std::chrono::high_resolution_clock::now(); //store start of each meassurement
     auto lastTime = std::chrono::high_resolution_clock::now(); //store start of each while iteration
 
     while (true) { // or some condition for your simulation
         step();
         // Sleep for the desired interval
         int rateNow = *this->rate; //get the dynamic rate
-        auto wait = std::chrono::duration<long long, std::nano>(std::chrono::nanoseconds(nanos/rateNow));
-        auto sleep = lastTime+wait;
-        //get time now and check how long to wait
-        auto time = std::chrono::high_resolution_clock::now();
+        auto waitNanos = std::chrono::duration<long long, std::nano>(std::chrono::nanoseconds(nanos/rateNow));
+        //get time now and check how long to Nanos
+        auto now = std::chrono::high_resolution_clock::now();
         n = (n+1)%sample;
-        if (n==0) {
+        if (n==0) { //the measurement is complete!
             //how many nanoseconds needed from first measurement
-            auto delta = std::chrono::duration_cast<std::chrono::nanoseconds>(time-meassure).count();
-            
-            std::cout << "Rate:"+(*this->rate) << (float)delta << secs*nanos << "  :  ";
-            std::cout << (*this->rate)*((float)delta/secs*nanos) << "Hz\n";
-            meassure = time; //reset for next time
-        }
-        if (sleep>time) std::this_thread::sleep_for(sleep-time);
+            auto delta = std::chrono::duration_cast<std::chrono::nanoseconds>(now-meassureStart).count();
+            auto deltaSec = delta/secs;
 
-        lastTime = sleep;
+            std::cout << (*this->rate)*(nanos/(float)deltaSec) << "Hz ("<< 100*(nanos/(float)deltaSec) <<"%)\n";
+            meassureStart = now; //reset for next now
+        }
+
+        auto nextStep = lastTime+waitNanos; //when is the next execution?
+        if (nextStep>now) std::this_thread::sleep_for(nextStep-now); //Nanos for it
+
+        lastTime = nextStep; //last time for next iteration
     }
 }
 

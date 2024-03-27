@@ -5,11 +5,13 @@
 //start simulation and drawings in parallel/threaded mode
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     const char winTtl[] = "Langtons Ant";
+    //field dimensions
     const int height = 512;
     const int width = 512;
+    //background color
     COLORREF background = RGB(255,255,255);
-    int fps = 30;
-    int rate = 50000;
+    int fps = 65; //Hz
+    int rate = 50000; //Hz
 
     // Create a dynamic 2D array
     COLORREF** field = new COLORREF*[height];
@@ -49,18 +51,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     int antsL = sizeof(ants)/sizeof(ants[0]);
 
 
-    // Init the GUI
-    Window window(hInstance, winTtl, 1000, 1000, field, width, height, background, fps);
-    // init thread to refresh screen
-    window.show();
-
-    //init langtonsAnt
+    // Init the simulation
     Sim langtonsAnt(field, width, height, ants, antsL, background, &rate);
+    // Init the GUI
+    Window window(hInstance, winTtl, 0, 0, field, width, height, background, fps);
+    // init thread to refresh screen
+    window.startDrawThread();
     // init thread to simulate ants
     langtonsAnt.startSimulationThread();
 
 
-    // Run the message loop.
+    // Run the message loop, ask GPT how this works^^
     MSG msg = { };
     while (GetMessage(&msg, NULL, 0, 0)) {
         TranslateMessage(&msg);
@@ -70,6 +71,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     //free memory
     for(int i = 0; i < height; ++i) delete [] field[i];
     delete [] field;
+    //TODO: Init "lastField" in main and also clean up used memory
 
     return 0;
 }

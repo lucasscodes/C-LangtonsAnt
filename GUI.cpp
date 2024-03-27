@@ -3,6 +3,7 @@
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <cmath>
 
 
 LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -17,6 +18,18 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
     }
 
     switch(msg) {
+        case WM_MOUSEMOVE:
+            ShowCursor(FALSE);  // Hide the cursor
+            break;
+        case WM_MOUSELEAVE:
+            ShowCursor(TRUE);  // Show the cursor when it leaves the window
+            break;
+        case WM_KEYDOWN:
+            if (wParam == VK_ESCAPE)  // VK_ESCAPE is the virtual key code for the Escape key
+            {
+                PostMessage(hwnd, WM_CLOSE, 0, 0);  // Send a WM_CLOSE message to the window
+            }
+            break;
         case WM_CLOSE:
             DestroyWindow(hwnd);
             break;
@@ -48,6 +61,13 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 Window::Window(HINSTANCE hInstance, const char* title, int width, int height, COLORREF** field, const int wField, const int hField, COLORREF backgroundX, int fpsX)
     : fieldW(wField), fieldH(hField), background(backgroundX), fps(fpsX)
 {
+    /*
+    //TODO: Use lpcwstring! 
+    const char test[] = "abc";
+    std::string str(test);
+    std::wstring wstr(str.begin(), str.end());
+    LPCWSTR testLpcwstr = wstr.c_str(); 
+    */
     const char CLASS_NAME[] = "Simulation Frame";
     WNDCLASS wc = { };
 
@@ -60,25 +80,26 @@ Window::Window(HINSTANCE hInstance, const char* title, int width, int height, CO
         return;
     }
 
-    hwnd = CreateWindowEx(0, CLASS_NAME, title, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, width, height, NULL, NULL, hInstance, this);
+    hwnd = CreateWindowEx(0, CLASS_NAME, title, WS_POPUP, CW_USEDEFAULT, CW_USEDEFAULT, width, height, NULL, NULL, hInstance, this);
 
     if (hwnd == NULL) {
         MessageBox(NULL, "Window Creation Failed!", "Error!", MB_ICONEXCLAMATION | MB_OK);
         return;
     }
 
+    //TODO: init this in main and make the gui-init faster!
     this->field = field;
     this->last = new COLORREF*[hField];
     for (int h=0; h<hField; h++) {
         this->last[h] = new COLORREF[wField];
         for (int w=0; w<wField; w++) this->last[h][w] = field[h][w];
     }   
-    this->redraw = false; //ignor last field and just redraw all?
+    this->redraw = false; //ignore last field and just redraw all?
     this->isDragging = false; //stop drawing while dragging (performance)
 
     this->hwnd = hwnd; //store simulation canvas
 
-    ShowWindow(hwnd, SW_SHOWDEFAULT);
+    ShowWindow(hwnd, SW_MAXIMIZE);
     UpdateWindow(hwnd);
 }
 
@@ -106,12 +127,12 @@ void Window::drawField() {
             if (this->redraw || last[y][x]!=col) { //only redraw new things
                 last[y][x] = col;
                 // Select the pen into the device context
-                HPEN hPen = CreatePen(PS_SOLID, 1, col); //border
+                HPEN hPen = CreatePen(PS_SOLID, 0, col); //border
                 HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
                 // Select the brush into the device context
                 HBRUSH hBrush = CreateSolidBrush(col); //fill
                 SelectObject(hdc, hBrush);
-                Rectangle(hdc, (int)x*blockW, (int)y*blockH, (int)x*blockW+blockW, (int)y*blockH+blockH); // Draws a square with top-left corner at (50,50) and bottom-right corner at (100,100)
+                Rectangle(hdc, round(x*blockW), round(y*blockH), round(x*blockW+blockW), round(y*blockH+blockH)); // Draws a square with top-left corner at (50,50) and bottom-right corner at (100,100)
                 //Clear up used objects
                 DeleteObject(hPen);
                 DeleteObject(hBrush);
@@ -124,25 +145,39 @@ void Window::drawField() {
 }
 
 void Window::drawLoop() {
-    auto lastTime = std::chrono::high_resolution_clock::now();
-    int nanos = std::chrono::nanoseconds(std::chrono::seconds(1)).count();
-    auto wait = std::chrono::duration<long long, std::nano>(nanos/this->fps);
+    int nanos = std::chrono::nanoseconds(std::chrono::seconds(1)).count(); 
+    int secs = 5;
+    int sample = secs*fps; //n * sec for each meassurement
+    int n = 0; //count in range [0,sample)
+    auto meassureStart = std::chrono::high_resolution_clock::now(); //store start of each meassurement
+    auto lastTime = std::chrono::high_resolution_clock::now(); //store start of each while iteration
+    auto waitNanos = std::chrono::duration<long long, std::nano>(std::chrono::nanoseconds(nanos/fps));
 
     while (true) { // or some condition for your simulation
         // Invalidate the window rect to trigger a WM_PAINT message
         InvalidateRect(this->hwnd , NULL, TRUE);
 
-        auto sleep = lastTime+wait;
-        //get time now and check how long to wait
-        auto time = std::chrono::high_resolution_clock::now();
         // Sleep for the desired interval
-        if (sleep>time) std::this_thread::sleep_for(sleep-time);
+        //get time now and check how long to Nanos
+        auto now = std::chrono::high_resolution_clock::now();
+        n = (n+1)%sample;
+        if (n==0) { //the measurement is complete!
+            //how many nanoseconds needed from first measurement
+            auto delta = std::chrono::duration_cast<std::chrono::nanoseconds>(now-meassureStart).count();
+            auto deltaSec = delta/secs;
 
-        lastTime = sleep;
+            std::cout << "Rendered: " << fps*(nanos/(float)deltaSec) << "Fps ("<< 100*(nanos/(float)deltaSec) <<"%) Simulated: ";
+            meassureStart = now; //reset for next now
+        }
+
+        auto nextStep = lastTime+waitNanos; //when is the next execution?
+        if (nextStep>now) std::this_thread::sleep_for(nextStep-now); //Nanos for it
+
+        lastTime = nextStep; //last time for next iteration
     }
 }
 
-void Window::show() {
+void Window::startDrawThread() {
     // init thread to refresh screen
     std::thread drawThread(&Window::drawLoop, this);
     //async execution

@@ -24,6 +24,6 @@
         void setRedraw();
     public:
         Window(HINSTANCE hInstance, const char* title, int width, int height, COLORREF** field, const int fieldW, const int fieldH, COLORREF background, int fps);
-        void show();
+        void startDrawThread();
     };
 #endif // GUI_HPP
